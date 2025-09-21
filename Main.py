@@ -1,59 +1,57 @@
-import json
-import urllib2
-import lxml.etree as ET
+import urllib.request
+from lxml import html
 
-def returnElements(root):
-    FooList=[]
-    for elements in root.findall('Table'):
-        gemeenteurl = elements.find('gemeenteurl').text 
-        wijkurl = elements.find('wijkurl').text
-        buurturl = elements.find('buurturl').text
-        statusurl = elements.find('statusurl').text
-        objectid = elements.find('objectid').text
-        paginaurl = elements.find('paginaurl').text
-        #print(gemeenteurl, wijkurl, buurturl, statusurl, objectid, paginaurl)
-        foo = ('http://www.oozo.nl/woningen/'+gemeenteurl+'/'+wijkurl+'/'+buurturl+'/'+statusurl+'/'+objectid+'/'+paginaurl+' ')
-        FooList.append(foo)
-    return(FooList)
+def find_property_url_by_postcode(address_info):
+    """
+    Finds the property URL for a given address by scraping the postcode page on oozo.nl.
+    """
+    base_url = "https://www.oozo.nl"
+    postcode_url = f"{base_url}/postcode/woningen/{address_info['postalcode']}"
 
-def returnRoot(pageIndex,straatnaam):
-    data = {'pageIndex': pageIndex, 'dataTypeId': 7, 'provincieId': 0, 'meldingsoortId': 0, 'gemeentecode': 599, 'wijkcode': 59901, 'buurtcode': 5990110, 'straatnaam': straatnaam, 'sbiCode': ""}
-    url='http://www.oozo.nl/woningen/rotterdam/rotterdam-centrum/stadsdriehoek/wijnkade'
-    req = urllib2.Request('http://www.oozo.nl/Zoeken.aspx/GetDataItems')
-    req.add_header('Content-Type', 'application/json')
-    req.add_header('Referer',url )
-    response = urllib2.urlopen(req, json.dumps(data))
-    jsonString = response.read()
-    jsonA = json.loads(jsonString)
-    xmlResult = jsonA['d']
-    #print xmlResult
-    root = ET.fromstring(xmlResult)
-    return(root)     
-            
-            
-                
-        
-    
-    
+    try:
+        # Fetch the HTML of the postcode page
+        req = urllib.request.Request(postcode_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            page_content = response.read()
 
-def WriteLinkFiles(address):    
-    pageIndex=1
-    resultsFile=address+'.txt'
-    with open(resultsFile, 'w') as file_:
-        while pageIndex<100:    
-            root=returnRoot(pageIndex,address)
-            foo=returnElements(root)
-            if not foo==[]:
-                pageIndex+=1
-                foo.append(str(foo))              
-            else:    
-                pageIndex=1000
-            foos=str(foo)
-            print foos
-            file_.write(str(foos))
+        # Parse the HTML
+        tree = html.fromstring(page_content)
 
-#addresses = ["Wijnkade","Jufferkade","Scheepmakerskade","Jufferstraat","Bierstraat","Wijnhaven","Wijnbrugstraat","Wijnstraat"]
-addresses = ["Wijnstraat"]
-for address in addresses:
-    WriteLinkFiles(address)    
+        # Find all property links on the page
+        property_links = tree.xpath('//a[contains(@href, "/woning/")]')
 
+        # Search for the link that contains the street name and house number
+        for link in property_links:
+            full_address_text = "".join(link.xpath('.//text()')).strip()
+            if address_info['street'].lower() in full_address_text.lower() and address_info['housenumber'] in full_address_text:
+                return base_url + link.get('href')
+
+    except urllib.error.HTTPError as e:
+        print(f"Error fetching page: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    return None
+
+def main():
+    """
+    Main function to find and save the property URL.
+    """
+    address_of_interest = {
+        "street": "Plantageweg",
+        "housenumber": "8",
+        "postalcode": "3061PH"
+    }
+
+    property_url = find_property_url_by_postcode(address_of_interest)
+
+    if property_url:
+        print(f"Found URL: {property_url}")
+        # Write the URL to a file
+        with open(f"{address_of_interest['street']}_{address_of_interest['housenumber']}.txt", 'w') as f:
+            f.write(property_url)
+    else:
+        print("Could not find the property URL.")
+
+if __name__ == '__main__':
+    main()
